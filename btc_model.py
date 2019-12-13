@@ -95,6 +95,7 @@ def _data_clean(key, data):
         lambda row: pd.to_datetime(datetime.fromtimestamp(row['timestamp'])), axis=1)
     print('{} \nmax datetime: {} \nmin datetime {}\n'.format(
         key, data['{}_datetime'.format(key)].max(), data['{}_datetime'.format(key)].min()))
+    data = data.sort_values(['{}_datetime'.format(key)])
     return data
 
 
@@ -192,7 +193,6 @@ def train_main(args):
 
     # normalization
     norm_data = _normalize(merged_data)
-    print('hook')
 
     # model
     best_model, best_test_pred, y_test = _model_tune(norm_data)
@@ -200,7 +200,6 @@ def train_main(args):
     # validation
 
     _validation(best_test_pred, y_test, SCALER_DICT)
-    print('hook')
 
 
 # to do
