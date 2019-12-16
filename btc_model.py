@@ -87,7 +87,8 @@ def _parse_path(base_path, keyword, train):
         if keyword == PRICE_NAME[0] and not train:
             raise ValueError('price data path is invalid, exit')
         else:
-            logger.warn('Path for auxiliary data {} is invalid\n'.format(keyword))
+            logger.warn(
+                'Path for auxiliary data {} is invalid\n'.format(keyword))
         return None
 
 
@@ -97,14 +98,17 @@ def _data_clean(key, data):
         try:
             data = data[data[col].apply(lambda x: x.isnumeric())]
         except AttributeError:
-            logger.debug('{} has no string values in column {}\n'.format(key, col))
+            logger.debug(
+                '{} has no string values in column {}\n'.format(key, col))
 
     data['timestamp'] = data['timestamp'].astype(int)
     data[key] = data[key].astype(float)
     data.loc[:, '{}_datetime'.format(key)] = data.apply(
         lambda row: pd.to_datetime(datetime.fromtimestamp(row['timestamp'])), axis=1)
-    logger.info('{} max datetime: {}'.format(key, data['{}_datetime'.format(key)].max()))
-    logger.info('{} min datetime: {}\n'.format(key, data['{}_datetime'.format(key)].min()))
+    logger.info('{} max datetime: {}'.format(
+        key, data['{}_datetime'.format(key)].max()))
+    logger.info('{} min datetime: {}\n'.format(
+        key, data['{}_datetime'.format(key)].min()))
     data = data.sort_values(['{}_datetime'.format(key)])
     return data
 
@@ -245,12 +249,13 @@ def train_main(args):
 
 # to do
 def test_main(args):
-    model_path = max(os.listdir(args.save_path))
+    model_path = max([i for i in os.listdir(args.save_path) if 'pkl' in i])
     try:
         with open(os.path.join(args.save_path, model_path), 'rb') as f:
             read_dict = pickle.load(f)
     except pickle.UnpicklingError:
-        logger.error('model cannot be loaded, check if there is any non-pickle exited in data folder.')
+        logger.error(
+            'model cannot be loaded with path {}, check if there is any non-pickle exited in data folder. Remove them if necessary'.format(model_path))
         sys.exit(1)
 
     model = read_dict['model']
