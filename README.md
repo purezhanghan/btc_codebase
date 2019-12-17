@@ -9,8 +9,18 @@ python btc_model.py \
 	--grid_search False \
 	--read_path './data' \
 	--save_path './output' \
-	--train
-
+	--train \
+	--val_size 100 \
+	--rolling \ 
+	--plot 
+"""
+parameter:
+--val_size 	# number of data get validated
+--train 	# determine mode
+--rolling 	# slide forward predicting, continually feeding test data to training
+--plot 		# plot testing result
+"""
+# --rooling
 # given "btc_price, 持有量100-100, etc.." in data folder
 # return best model and store in output folder
 
@@ -34,6 +44,11 @@ python btc_model.py \
 	--read_path './data' \
 	--save_path './output' \
 	--t_next
+"""
+parameter:
+--t_next 	# return next time prediction
+"""
+
 # given "持有量100-1000-test, etc.." in data folder, test tag must be included in file name
 # return T+1/T+N prediction(make sure there is a model get trained before)
 
@@ -45,7 +60,7 @@ price prediction: 7771.996548204
 ```
 #### Todo:
 - [x] Eval Mode: test trained model, return prediction with given data [2019.12.16]
-- [ ] Plotting: draw price and prediction in real time
+- [x] Plotting: draw price and prediction during training
 - [ ] More auxiliary data: e.g. mood data
 - [ ] Model's Parameter Search: random search, bayesian
 - [ ] Advanced Model: RNN coming

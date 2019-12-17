@@ -36,11 +36,17 @@ import logging
 # yml
 import yaml
 
+# copy
+import copy
+
+# plot
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 warnings.simplefilter('ignore')
 
 PRICE_NAME = ['价格']
-HOLD_AMOUNT_NAME = ['100-1000', '1000-10000', '10000-100000']
+HOLD_AMOUNT_NAME = ['10-100', '100-1000', '1000-10000', '10000-100000']
 # NORM_COLS = ['价格', '100-1000', '1000-10000', '10000-100000']
 SPLIT_SIZE = 0.7
 
@@ -155,7 +161,7 @@ def _normalize(df, scaler_dict, is_training):
     return df
 
 
-def _model_tune(data, norm=True):
+def _model_tune(data, rolling=False, norm=True, val_size=100):
     if norm:
         train_col = list(data.columns[data.columns.str.contains('norm')])
     best_model = None
@@ -164,8 +170,10 @@ def _model_tune(data, norm=True):
     train_col.remove(price_norm_name)
     X = data[train_col]
     y = data[price_norm_name]
-    split_flag = int(len(data) * SPLIT_SIZE)
-    X_train, X_test, y_train, y_test = X[:split_flag], X[split_flag:], y[:split_flag], y[split_flag:]
+    split_flag = int(len(data))
+    X_train, X_test, y_train, y_test = X[:split_flag - val_size], X[split_flag -
+                                                                    val_size:], y[:split_flag - val_size], y[split_flag - val_size:]
+    test_time = data['价格_datetime'][split_flag - val_size:]
     for model in MODEL_LIST:
         reg = model()
         reg.fit(X_train, y_train)
@@ -182,23 +190,65 @@ def _model_tune(data, norm=True):
             f"{cur_score:.3f}\t"
             f"best_score: {best_score:.3f}"
         )
-    return best_model, best_test_pred, y_test
+    if rolling:
+        rolling_test_pred = [best_model.predict(X_train.iloc[-1].to_frame().T)]
+        iter_train_X = copy.deepcopy(X_train)
+        iter_train_y = copy.deepcopy(y_train)
+        iter_model = best_model
+        logger.info("Start rolling predict.")
+        for i in range(len(X_test)-1):
+            iter_train_X = iter_train_X.append(X_test.iloc[i].to_frame().T)
+            iter_train_y = iter_train_y.append(
+                pd.Series(y_test.iloc[i]), ignore_index=True)
+            iter_model.fit(iter_train_X, iter_train_y)
+            next_pred = iter_model.predict(X_test.iloc[i+1].to_frame().T)
+            logger.info(
+                'Iteration: {}, t+1 prediction: {}'.format(i+1, next_pred))
+            rolling_test_pred.append(next_pred)
+            if i == len(X_test) - 2:
+                best_model = iter_model
+        best_test_pred = np.concatenate(rolling_test_pred)
+
+    return best_model, best_test_pred, y_test, test_time
 
 
-def _validation(pred, target):
+def _validation(pred, target, test_time, abs_compare=False):
     val_df = pd.DataFrame(data=np.hstack(
         (pred.reshape(-1, 1), target.values.reshape(-1, 1))), columns=['pred', 'target'])
     val_df['target_shift'] = val_df['target'].shift(-1)
     val_df['pred_shift'] = val_df['pred'].shift(-1)
-
     val_df['target_trend'] = val_df['target_shift'] - val_df['target']
-    val_df['pred_trend'] = val_df['pred_shift'] - val_df['pred']
+    if abs_compare:
+        val_df['pred_trend'] = val_df['pred_shift'] - val_df['target']
+    else:
+        val_df['pred_trend'] = val_df['pred_shift'] - val_df['pred']
     val_df['simult'] = val_df.apply(
-        lambda row: row['target_trend'] * row['pred_trend'] >= 0, axis=1)
-
+        lambda row: row['target_trend'] * row['pred_trend'] > 0, axis=1)
     logger.info(
-        f"trend simultaneous acc: {val_df['simult'].sum() / len(val_df):.3f}"
+            f"validation time between {test_time.min()} - {test_time.max()}: trend simultaneous acc: {val_df['simult'].sum() / len(val_df):.3f}"
     )
+    return val_df
+
+
+def _drawing(val_df, test_time, scaler_dict):
+    """
+    Plot prediction and Target for intuitive observing
+    """
+    fig, ax = plt.subplots(figsize=(12, 8))
+    # start, end = ax.get_xlim()
+    # xfmt = mdates.DateFormatter("%Y-%m-%d %H:%M:%S")
+    # ax.xaxis.set_major_locator(mdates.DayLocator(interval=2))
+    # ax.xaxis.set_major_formatter(xfmt)
+    # ax.set_xticks(test_time.values)
+    # fig.autofmt_xdate()
+    # plt.xticks(test_time.values, rotation=40)
+    ax.plot(list(test_time), scaler_dict[PRICE_NAME[0]].inverse_transform(
+        val_df.target.values.reshape(-1, 1)), label='true', color='#1f77b4', markersize=4, marker='o')
+    ax.plot(list(test_time), scaler_dict[PRICE_NAME[0]].inverse_transform(
+        val_df.pred.values.reshape(-1, 1)), label='pred', color='#ff7f0e', markersize=4, marker='x')
+    plt.xticks(rotation=45)
+    fig.legend(loc=1)
+    plt.show()
 
 
 def train_main(args):
@@ -226,11 +276,13 @@ def train_main(args):
     norm_data = _normalize(merged_data, scaler_dict, args.train)
 
     # model
-    best_model, best_test_pred, y_test = _model_tune(norm_data)
-
+    best_model, best_test_pred, y_test, test_time = _model_tune(
+        norm_data, args.rolling, val_size=args.val_size)
     # validation
+    val_df = _validation(best_test_pred, y_test, test_time)
 
-    _validation(best_test_pred, y_test)
+    if args.plot:
+        _drawing(val_df, test_time, scaler_dict)
 
     # if save
     save_path = args.save_path + '/' + \
@@ -314,7 +366,16 @@ if __name__ == '__main__':
     parser.add_argument(
         "--train", help='train or eval mode', action='store_true')
     parser.add_argument(
+        "--val_size", help='number of test data get validated', type=int, default=100
+    )
+    parser.add_argument(
         "--t_next", help='predict next time price only', action='store_true')
+    parser.add_argument(
+        "--rolling", help='train and validate result in rolling way', action='store_true'
+    )
+    parser.add_argument(
+        "--plot", help="plotting prediction result", action='store_true'
+    )
     args = parser.parse_args()
 
     # load logger config
